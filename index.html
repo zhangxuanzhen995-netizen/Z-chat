@@ -361,7 +361,7 @@
     <div class="fg">
       <label class="fl">中转站地址 Base URL</label>
       <input type="text" class="fi" id="su" placeholder="https://api.example.com">
-      <div class="fi-hint">不含 /v1，如 https://api.b.ai</div>
+      <div class="fi-hint">本地使用填完整地址如 https://api.b.ai · 部署在 Vercel 上填 /api</div>
     </div>
     <div class="fg">
       <label class="fl">API Key</label>
@@ -390,6 +390,16 @@ function load(){
   S.url=ls('gw_url')||'';S.key=ls('gw_key')||'';S.sel=ls('gw_sel')||'';
   try{S.convs=JSON.parse(ls('gw_cv')||'[]')}catch{}
   try{S.cmpModels=JSON.parse(ls('gw_cms')||'[]')}catch{}
+  // Auto-use proxy when running on a web server (not local)
+  const isLocal=location.protocol==='file:'||location.hostname==='localhost'||location.hostname==='127.0.0.1';
+  if(!isLocal&&!S.url)S.url='/api';
+}
+
+// Get effective API base (use proxy on web server if URL not set to absolute)
+function apiBase(){
+  const isLocal=location.protocol==='file:'||location.hostname==='localhost'||location.hostname==='127.0.0.1';
+  if(!isLocal&&(!S.url||S.url==='/api'))return'/api';
+  return S.url;
 }
 function saveCV(){lss('gw_cv',JSON.stringify(S.convs))}
 function ls(k){try{return localStorage.getItem(k)}catch{return null}}
@@ -406,11 +416,11 @@ function sta(txt,type){
 }
 
 async function fetchModels(){
-  if(!S.url){sta('未配置 · 点击 ⚙ 设置','');return}
+  if(!S.url&&location.protocol==='file:'){sta('未配置 · 点击 ⚙ 设置','');return}
   sta('连接中…','ld');el('rb').textContent='⟳ 加载…';
   try{
     const h={'Content-Type':'application/json'};if(S.key)h['Authorization']='Bearer '+S.key;
-    const r=await fetch(S.url+'/v1/models',{headers:h});
+    const r=await fetch(apiBase()+'/v1/models',{headers:h});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
     const list=(d.data||d.models||[]).map(m=>typeof m==='string'?m:(m.id||m.name||'')).filter(Boolean).sort();
@@ -572,7 +582,7 @@ async function genSummary(cv){
     const h={'Content-Type':'application/json'};if(S.key)h['Authorization']='Bearer '+S.key;
     const msgs=cv.messages.slice(0,4).map(m=>({role:m.role,content:typeof m.content==='string'?m.content:(m.content||'')}));
     msgs.push({role:'user',content:'请用不超过12个字总结以上对话的主题，只输出文字，不要标点符号。'});
-    const res=await fetch(S.url+'/v1/chat/completions',{method:'POST',headers:h,
+    const res=await fetch(apiBase()+'/v1/chat/completions',{method:'POST',headers:h,
       body:JSON.stringify({model:cv.model||S.sel||S.models[0],messages:msgs,stream:false,max_tokens:20})});
     const data=await res.json();
     const s=(data.choices?.[0]?.message?.content||'').trim().replace(/[。，、！？.!?,]/g,'').slice(0,15);
@@ -673,7 +683,7 @@ async function send(){
     const body={model:S.sel,messages:[...history,{role:'user',content:apiContent}],stream:true};
     if(S.webSearch)body.web_search_options={search_context_size:'medium'};
     S.abortCtrl=new AbortController();
-    const res=await fetch(S.url+'/v1/chat/completions',{method:'POST',headers:h,body:JSON.stringify(body),signal:S.abortCtrl.signal});
+    const res=await fetch(apiBase()+'/v1/chat/completions',{method:'POST',headers:h,body:JSON.stringify(body),signal:S.abortCtrl.signal});
     if(!res.ok){const e=await res.text();throw new Error('HTTP '+res.status+': '+e.slice(0,120))}
 
     const reader=res.body.getReader(),dec=new TextDecoder();
@@ -744,7 +754,7 @@ async function runCmp(){
     const cid=cols[m];let txt='';
     try{
       const h={'Content-Type':'application/json'};if(S.key)h['Authorization']='Bearer '+S.key;
-      const r=await fetch(S.url+'/v1/chat/completions',{method:'POST',headers:h,body:JSON.stringify({model:m,messages:[{role:'user',content:prompt}],stream:true})});
+      const r=await fetch(apiBase()+'/v1/chat/completions',{method:'POST',headers:h,body:JSON.stringify({model:m,messages:[{role:'user',content:prompt}],stream:true})});
       if(!r.ok)throw new Error('HTTP '+r.status);
       const reader=r.body.getReader(),dec=new TextDecoder();let buf='';
       while(true){
